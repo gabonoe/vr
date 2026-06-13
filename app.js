@@ -21,8 +21,7 @@ const tempMatrix = new THREE.Matrix4();
 const NEAR_GRAB_DISTANCE = 0.12;   // meters: distance for direct (touch) grab
 const RAY_GRAB_DISTANCE = 6;       // meters: max distance for ray grab
 const HIGHLIGHT_COLOR = new THREE.Color(0x33aaff);
-const VR_MIN_STAND_DISTANCE = 0.8; // meters: minimum distance from the objects
-const VR_VIEW_MARGIN = 0.4;        // meters: extra room so all objects stay in view
+const VR_STAND_DISTANCE = 0.45;    // meters: how far the player stands from the objects
 
 let glbCamera = null;
 const glbCamWorldPos = new THREE.Vector3();
@@ -405,33 +404,19 @@ function getRayFirstHit(controller) {
 }
 
 function positionPlayerNearObjects() {
-    // Preferred: use the camera defined in escena.glb as the player position
-    if (glbCamera) {
-        const euler = new THREE.Euler().setFromQuaternion(glbCamWorldQuat, 'YXZ');
-        playerRig.position.set(glbCamWorldPos.x, 0, glbCamWorldPos.z);
-        playerRig.rotation.set(0, euler.y, 0);
-        console.log('Player positioned at GLB camera:', glbCamWorldPos);
-        return;
+    // Compute the centroid of the grabbable objects (fallback to the table)
+    const center = new THREE.Vector3();
+    let count = 0;
+    const tmp = new THREE.Vector3();
+
+    for (const obj of grabbableObjects) {
+        obj.getWorldPosition(tmp);
+        center.add(tmp);
+        count++;
     }
 
-    // Fallback: stand in front of the grabbable objects
-    const center = new THREE.Vector3();
-    let standDistance = VR_MIN_STAND_DISTANCE;
-
-    if (grabbableObjects.length > 0) {
-        const box = new THREE.Box3();
-        const objBox = new THREE.Box3();
-        for (const obj of grabbableObjects) {
-            objBox.setFromObject(obj);
-            box.union(objBox);
-        }
-        box.getCenter(center);
-
-        // Distance so the whole group fits in view (based on its horizontal spread)
-        const size = new THREE.Vector3();
-        box.getSize(size);
-        const spread = Math.max(size.x, size.z);
-        standDistance = Math.max(VR_MIN_STAND_DISTANCE, spread + VR_VIEW_MARGIN);
+    if (count > 0) {
+        center.divideScalar(count);
     } else if (mesaMesh) {
         new THREE.Box3().setFromObject(mesaMesh).getCenter(center);
     } else {
@@ -453,17 +438,15 @@ function positionPlayerNearObjects() {
         approach.normalize();
     }
 
-    // Stand back far enough to see all objects, on the floor
-    const px = center.x + approach.x * standDistance;
-    const pz = center.z + approach.z * standDistance;
+    // Stand a short distance from the objects, on the floor
+    const px = center.x + approach.x * VR_STAND_DISTANCE;
+    const pz = center.z + approach.z * VR_STAND_DISTANCE;
     playerRig.position.set(px, 0, pz);
 
     // Face the objects (-Z is forward after a Y rotation of yaw)
     const dx = center.x - px;
     const dz = center.z - pz;
     playerRig.rotation.set(0, Math.atan2(-dx, -dz), 0);
-
-    console.log('Player stand distance:', standDistance.toFixed(2), 'm');
 }
 
 function onWindowResize() {
