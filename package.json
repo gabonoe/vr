@@ -1,0 +1,22 @@
+{
+  "name": "meta-quest-3-hand-tracking",
+  "version": "1.0.0",
+  "description": "Meta Quest 3 application with hand tracking for grabbing 3D objects",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -u server.py 8443",
+    "start-http": "python -m http.server 8080"
+  },
+  "keywords": [
+    "webxr",
+    "threejs",
+    "meta-quest",
+    "hand-tracking",
+    "vr"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
