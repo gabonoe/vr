@@ -21,6 +21,8 @@ const tempMatrix = new THREE.Matrix4();
 const NEAR_GRAB_DISTANCE = 0.12;   // meters: distance for direct (touch) grab
 const RAY_GRAB_DISTANCE = 6;       // meters: max distance for ray grab
 const HIGHLIGHT_COLOR = new THREE.Color(0x33aaff);
+const VR_MIN_STAND_DISTANCE = 0.8; // meters: minimum distance from the objects
+const VR_VIEW_MARGIN = 0.4;        // meters: extra room so all objects stay in view
 
 let glbCamera = null;
 const glbCamWorldPos = new THREE.Vector3();
@@ -169,17 +171,13 @@ function init() {
     // and 'bounded-floor' as optional features for Quest 2/3.
     document.body.appendChild(VRButton.createButton(renderer));
 
-    // Position the player at the GLB camera viewpoint when VR starts
+    // Position the player close to the objects (within arm's reach) when VR starts
     renderer.xr.addEventListener('sessionstart', () => {
-        if (glbCamera) {
-            const euler = new THREE.Euler().setFromQuaternion(glbCamWorldQuat, 'YXZ');
-            playerRig.position.set(glbCamWorldPos.x, 0, glbCamWorldPos.z);
-            playerRig.rotation.set(0, euler.y, 0);
-        }
+        positionPlayerNearObjects();
         // The headset drives the camera in VR; clear local transform
         camera.position.set(0, 0, 0);
         camera.quaternion.identity();
-        console.log('VR session started. Player positioned at GLB camera viewpoint');
+        console.log('VR session started. Player positioned near objects');
     });
 
     renderer.xr.addEventListener('sessionend', () => {
@@ -404,6 +402,68 @@ function getRayFirstHit(controller) {
     raycaster.far = RAY_GRAB_DISTANCE;
     const hits = raycaster.intersectObjects(grabbableObjects, false);
     return hits.length > 0 ? hits[0] : null;
+}
+
+function positionPlayerNearObjects() {
+    // Preferred: use the camera defined in escena.glb as the player position
+    if (glbCamera) {
+        const euler = new THREE.Euler().setFromQuaternion(glbCamWorldQuat, 'YXZ');
+        playerRig.position.set(glbCamWorldPos.x, 0, glbCamWorldPos.z);
+        playerRig.rotation.set(0, euler.y, 0);
+        console.log('Player positioned at GLB camera:', glbCamWorldPos);
+        return;
+    }
+
+    // Fallback: stand in front of the grabbable objects
+    const center = new THREE.Vector3();
+    let standDistance = VR_MIN_STAND_DISTANCE;
+
+    if (grabbableObjects.length > 0) {
+        const box = new THREE.Box3();
+        const objBox = new THREE.Box3();
+        for (const obj of grabbableObjects) {
+            objBox.setFromObject(obj);
+            box.union(objBox);
+        }
+        box.getCenter(center);
+
+        // Distance so the whole group fits in view (based on its horizontal spread)
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const spread = Math.max(size.x, size.z);
+        standDistance = Math.max(VR_MIN_STAND_DISTANCE, spread + VR_VIEW_MARGIN);
+    } else if (mesaMesh) {
+        new THREE.Box3().setFromObject(mesaMesh).getCenter(center);
+    } else {
+        // No scene loaded yet: keep the GLB camera viewpoint as a fallback
+        if (glbCamera) {
+            const euler = new THREE.Euler().setFromQuaternion(glbCamWorldQuat, 'YXZ');
+            playerRig.position.set(glbCamWorldPos.x, 0, glbCamWorldPos.z);
+            playerRig.rotation.set(0, euler.y, 0);
+        }
+        return;
+    }
+
+    // Approach the objects from the side where the GLB camera was, so the
+    // viewpoint feels natural. Fall back to approaching from +Z.
+    const approach = new THREE.Vector3(0, 0, 1);
+    if (glbCamera) {
+        approach.set(glbCamWorldPos.x - center.x, 0, glbCamWorldPos.z - center.z);
+        if (approach.lengthSq() < 1e-6) approach.set(0, 0, 1);
+        approach.normalize();
+    }
+
+    // Stand back far enough to see all objects, on the floor
+    const px = center.x + approach.x * standDistance;
+    const pz = center.z + approach.z * standDistance;
+    playerRig.position.set(px, 0, pz);
+
+    // Face the objects (-Z is forward after a Y rotation of yaw)
+    const dx = center.x - px;
+    const dz = center.z - pz;
+    playerRig.rotation.set(0, Math.atan2(-dx, -dz), 0);
+
+    console.log('Player stand distance:', standDistance.toFixed(2), 'm');
 }
 
 function onWindowResize() {
